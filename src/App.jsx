@@ -1,34 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import './App.css'
 import mockSpots from './data/mockSpots'
 import ParkingMapView from './components/ParkingMapView'
 import AdminActions from './components/AdminActions'
 
-function formatTipoPosto(tipo) {
-  switch (tipo) {
-    case 'disabili':
-      return 'Disabili'
-    case 'elettrico':
-      return 'Elettrico'
-    case 'moto':
-      return 'Moto'
-    case 'furgone':
-      return 'Furgone'
-    default:
-      return 'Normale'
-  }
-}
 
-function formatTipoVeicolo(tipo) {
-  switch (tipo) {
-    case 'moto':
-      return 'Moto'
-    case 'furgone':
-      return 'Furgone'
-    default:
-      return 'Auto'
-  }
-}
 
 function formatStato(spot) {
   if (spot.maintenance) return 'Manutenzione'
@@ -68,7 +44,20 @@ function getCurrentDateTime() {
 }
 
 function App() {
-  const [spots, setSpots] = useState(mockSpots)
+  const [spots, setSpots] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  // Aggiungi questo blocco per scaricare i dati dal DB
+  useEffect(() => {
+    fetch("http://127.0.0.1:5000/api/spots")
+      .then(res => res.json())
+      .then(data => {
+        setSpots(data);
+        setLoading(false);
+      })
+      .catch(err => console.error("Errore caricamento:", err));
+  }, []);
+  
   const [selectedSpot, setSelectedSpot] = useState(null)
   const [editSpot, setEditSpot] = useState(null)
   const [statusFilter, setStatusFilter] = useState('all')
@@ -79,30 +68,22 @@ function App() {
   const [focusedZone, setFocusedZone] = useState('A')
 
   function matchesFilters(spot) {
-    const matchStatus =
-      statusFilter === 'all'
-        ? true
-        : statusFilter === 'maintenance'
-          ? spot.maintenance
-          : spot.status === statusFilter && !spot.maintenance
-
-    const matchType = typeFilter === 'all' ? true : spot.parkingtype === typeFilter
-    const matchZone = zoneFilter === 'all' ? true : spot.zone === zoneFilter
-
-    const search = searchTerm.trim().toLowerCase()
-    const matchSearch = !search
-      ? true
-      : spot.id.toLowerCase().includes(search) ||
-        spot.zone.toLowerCase().includes(search) ||
-        spot.parkingtype.toLowerCase().includes(search)
-
-    return matchStatus && matchType && matchZone && matchSearch
-  }
+  // Se non c'è il termine di ricerca, il posto passa il filtro
+  if (!searchTerm) return true;
+  
+  // Verifica che spot.id esista prima di chiamare toLowerCase()
+  const idMatch = spot.id && spot.id.toLowerCase().includes(searchTerm.toLowerCase());
+  
+  // Se vuoi cercare anche per tipo, assicurati di usare i nomi corretti del DB
+  const typeMatch = spot.parking_type && spot.parking_type.toLowerCase().includes(searchTerm.toLowerCase());
+  
+  return idMatch || typeMatch;
+}
 
   const filteredSpots = useMemo(() => {
-    return spots.filter((spot) => matchesFilters(spot))
-  }, [spots, statusFilter, typeFilter, zoneFilter, searchTerm])
-
+  if (!spots) return []; // Sicurezza se i dati non sono ancora arrivati
+  return spots.filter(matchesFilters);
+}, [spots, searchTerm]);
   const stats = useMemo(() => {
     const total = spots.length
     const occupied = spots.filter((spot) => spot.status === 'occupied' && !spot.maintenance).length
