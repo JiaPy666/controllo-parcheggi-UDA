@@ -68,7 +68,7 @@ function App() {
   const [focusedZone, setFocusedZone] = useState('A')
 
   function matchesFilters(spot) {
-  // Se non c'è il termine di ricerca, il posto passa il filtro
+  // Se non c'è il termine di ricerca, il posto passa il filtron jhgjghj
   if (!searchTerm) return true;
   
   // Verifica che spot.id esista prima di chiamare toLowerCase()
