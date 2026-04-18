@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import Header from '../components/Header'
 import SidebarFilters from '../components/SidebarFilters'
 import StatsCards from '../components/StatsCards'
@@ -12,14 +12,16 @@ import ViewToggle from '../components/ViewToggle'
 import ParkingMapView from '../components/ParkingMapView'
 import ZoneSummaryCards from '../components/ZoneSummaryCards'
 import AdminActions from '../components/AdminActions'
-import mockSpots, { normalizeSpotById } from '../data/mockSpots'
+
+const API_URL = 'http://127.0.0.1:5000/api/spots'
 
 function DashboardPage() {
-  const [spots, setSpots] = useState(mockSpots)
+  const [spots, setSpots] = useState([])
   const [selectedZone, setSelectedZone] = useState('A')
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedSpot, setSelectedSpot] = useState(null)
   const [currentView, setCurrentView] = useState('overview')
+  const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({
     zone: '',
     status: '',
@@ -28,108 +30,84 @@ function DashboardPage() {
     maintenance: '',
   })
 
+  // 1. Caricamento dati iniziale dal database (via Flask)
+  useEffect(() => {
+    fetchSpots()
+  }, [])
+
+  const fetchSpots = async () => {
+    setLoading(true)
+    try {
+      const response = await fetch(API_URL)
+      if (!response.ok) throw new Error('Errore nel caricamento dati')
+      const data = await response.json()
+      setSpots(data)
+    } catch (error) {
+      console.error("Errore API:", error)
+      alert("Impossibile connettersi al database. Assicurati che Flask sia attivo.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const activeZone = filters.zone && filters.zone !== 'all' ? filters.zone : selectedZone
 
   function matchesFilters(spot) {
     const zoneMatch = !filters.zone || filters.zone === 'all' || spot.zone === filters.zone
     const statusMatch = !filters.status || spot.status === filters.status
-    const parkingTypeMatch = !filters.parkingType || spot.parking_type === filters.parkingType
-    const vehicleTypeMatch = !filters.vehicleType || spot.vehicle_type === filters.vehicleType
+    const typeMatch = !filters.parkingType || spot.parking_type === filters.parkingType
+    const vehicleMatch = !filters.vehicleType || spot.vehicle_type === filters.vehicleType
     const maintenanceMatch =
-      filters.maintenance === ''
-        ? true
-        : filters.maintenance === 'true'
-        ? spot.maintenance === true
-        : spot.maintenance === false
-    const searchMatch = !searchTerm.trim() || spot.id.includes(searchTerm.trim().toUpperCase())
+      filters.maintenance === '' || String(spot.maintenance) === filters.maintenance
 
-    return (
-      zoneMatch &&
-      statusMatch &&
-      parkingTypeMatch &&
-      vehicleTypeMatch &&
-      maintenanceMatch &&
-      searchMatch
-    )
+    return zoneMatch && statusMatch && typeMatch && vehicleMatch && maintenanceMatch
   }
 
   const visibleSpots = useMemo(() => {
-    return spots.filter((spot) => spot.zone === activeZone && matchesFilters(spot))
-  }, [spots, activeZone, filters, searchTerm])
+    let result = spots
 
-  const summary = useMemo(() => {
-    const total = spots.length
-    const free = spots.filter((spot) => spot.status === 'free' && !spot.maintenance).length
-    const occupied = spots.filter((spot) => spot.status === 'occupied').length
-    const maintenance = spots.filter((spot) => spot.maintenance).length
+    if (activeZone !== 'all') {
+      result = result.filter((s) => s.zone === activeZone)
+    }
 
-    return { total, free, occupied, maintenance }
-  }, [spots])
+    if (searchTerm) {
+      const upperTerm = searchTerm.toUpperCase()
+      result = result.filter((s) => s.id.includes(upperTerm))
+    }
+
+    return result.filter(matchesFilters)
+  }, [spots, activeZone, searchTerm, filters])
 
   const zoneSummary = useMemo(() => {
-    return ['A', 'B', 'C', 'D'].map((zone) => {
-      const zoneSpots = spots.filter((spot) => spot.zone === zone)
-      const free = zoneSpots.filter((spot) => spot.status === 'free' && !spot.maintenance).length
-      const occupied = zoneSpots.filter((spot) => spot.status === 'occupied').length
-
-      return { zone, free, occupied }
+    const zones = ['A', 'B', 'C', 'D']
+    return zones.map((z) => {
+      const zoneSpots = spots.filter((s) => s.zone === z)
+      return {
+        zone: z,
+        total: zoneSpots.length,
+        free: zoneSpots.filter((s) => s.status === 'free' && !s.maintenance).length,
+        occupied: zoneSpots.filter((s) => s.status === 'occupied').length,
+        maintenance: zoneSpots.filter((s) => s.maintenance).length,
+      }
     })
+  }, [spots])
+
+  const globalSummary = useMemo(() => {
+    return {
+      total: spots.length,
+      free: spots.filter((s) => s.status === 'free' && !s.maintenance).length,
+      occupied: spots.filter((s) => s.status === 'occupied').length,
+      maintenance: spots.filter((s) => s.maintenance).length,
+    }
   }, [spots])
 
   function handleZoneChange(zone) {
-    if (!zone || zone === 'all') return
     setSelectedZone(zone)
-    setSelectedSpot(null)
-    setCurrentView('map')
-  }
-
-  function handleSearchChange(value) {
-    setSearchTerm(value)
-  }
-
-  function handleSearchSubmit() {
-    const normalized = searchTerm.trim().toUpperCase()
-    if (!normalized) return
-
-    const foundSpot = spots.find((spot) => spot.id === normalized)
-
-    if (foundSpot) {
-      setSelectedZone(foundSpot.zone)
-      setCurrentView('map')
-      setSelectedSpot(foundSpot)
-    } else {
-      alert('Nessun posto trovato con questo codice.')
-    }
-  }
-
-  function handleSelectSpot(spot) {
-    setSelectedSpot(spot)
-  }
-
-  function handleCloseModal() {
-    setSelectedSpot(null)
-  }
-
-  function handleSaveSpot(updatedSpot) {
-    const normalizedSpot = normalizeSpotById({
-      ...updatedSpot,
-      last_updated: new Date().toLocaleString('it-IT'),
-    })
-
-    setSpots((prevSpots) =>
-      prevSpots.map((spot) =>
-        spot.id === normalizedSpot.id ? normalizedSpot : spot
-      )
-    )
-
-    setSelectedSpot(normalizedSpot)
+    setFilters((prev) => ({ ...prev, zone: zone === 'all' ? '' : zone }))
   }
 
   function handleFilterChange(name, value) {
-    setFilters((prev) => ({
-      ...prev,
-      [name]: value,
-    }))
+    setFilters((prev) => ({ ...prev, [name]: value }))
   }
 
   function handleResetFilters() {
@@ -141,122 +119,111 @@ function DashboardPage() {
       maintenance: '',
     })
     setSearchTerm('')
-    setSelectedSpot(null)
     setSelectedZone('A')
-    setCurrentView('overview')
   }
+
+  function handleSelectSpot(spot) {
+    setSelectedSpot(spot)
+  }
+
+  function handleCloseModal() {
+    setSelectedSpot(null)
+  }
+
+  // 2. Salvataggio dati sul database (via Flask PUT)
+  const handleSaveSpot = async (updatedSpot) => {
+    console.log('Spot da salvare:', updatedSpot)
+    try {
+      const response = await fetch(`http://127.0.0.1:5000/api/spots/${updatedSpot.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          zone: updatedSpot.zone,
+          status: updatedSpot.status,
+          parking_type: updatedSpot.parking_type, // Verifica che non sia parkingType
+          maintenance: updatedSpot.maintenance,
+          vehicle_type: updatedSpot.vehicle_type, // Verifica che non sia vehicleType
+          cost: updatedSpot.cost
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        // Aggiorna lo stato locale per vedere il cambiamento subito
+        setSpots(prev => prev.map(s => 
+          s.id === updatedSpot.id ? { ...updatedSpot, last_updated: result.last_updated } : s
+        ));
+        alert("Modifica salvata nel database!");
+      } else {
+        alert("Errore durante il salvataggio sul server.");
+      }
+    } catch (error) {
+      console.error("Errore di connessione:", error);
+      alert("Errore di connessione al server: " + error.message);
+    }
+  };
 
   function handleChangeView(view) {
     setCurrentView(view)
-    setSelectedSpot(null)
   }
 
+  // Funzioni Admin (ora rinfrescano i dati dal server dopo le operazioni)
   function handleExportJson() {
-    const jsonString = JSON.stringify(spots, null, 2)
-    const blob = new Blob([jsonString], { type: 'application/json' })
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-
-    link.href = url
-    link.download = 'parking-spots.json'
-    link.click()
-
-    window.URL.revokeObjectURL(url)
+    const dataStr = JSON.stringify(spots, null, 2)
+    const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr)
+    const linkElement = document.createElement('a')
+    linkElement.setAttribute('href', dataUri)
+    linkElement.setAttribute('download', 'parking_dataset.json')
+    linkElement.click()
   }
 
-  function handleImportJson(parsedData) {
-    if (!Array.isArray(parsedData)) {
-      alert('Il file deve contenere un array JSON di posti.')
-      return
-    }
-
-    setSpots(parsedData)
-    setSelectedSpot(null)
-    setSelectedZone('A')
-    setSearchTerm('')
-    setCurrentView('overview')
-    alert('Importazione completata.')
+  function handleImportJson(newSpots) {
+    alert("Funzione di import di massa non ancora collegata al DB. Usa il modal per modifiche singole.")
   }
 
   function handleResetDataset() {
-    const confirmReset = window.confirm(
-      'Vuoi davvero ripristinare il dataset iniziale del parcheggio?'
-    )
-
-    if (!confirmReset) return
-
-    setSpots(mockSpots)
-    setSelectedSpot(null)
-    setSelectedZone('A')
-    setSearchTerm('')
-    setFilters({
-      zone: '',
-      status: '',
-      parkingType: '',
-      vehicleType: '',
-      maintenance: '',
-    })
-    setCurrentView('overview')
+    fetchSpots() // Ricarica i dati originali dal DB
   }
 
   function handleSimulateOccupancy() {
-    setSpots((prevSpots) =>
-      prevSpots.map((spot) => {
-        const randomNumber = Math.random()
-        const shouldToggleStatus = randomNumber > 0.82
-        const shouldToggleMaintenance = randomNumber < 0.04
+    alert("Simulazione lato server non implementata. Modifica un posto manualmente.")
+  }
 
-        let nextStatus = spot.status
-        let nextMaintenance = spot.maintenance
-
-        if (shouldToggleStatus && !spot.maintenance) {
-          nextStatus = spot.status === 'free' ? 'occupied' : 'free'
-        }
-
-        if (shouldToggleMaintenance) {
-          nextMaintenance = !spot.maintenance
-        }
-
-        if (nextStatus !== spot.status || nextMaintenance !== spot.maintenance) {
-          return {
-            ...spot,
-            status: nextStatus,
-            maintenance: nextMaintenance,
-            last_updated: new Date().toLocaleString('it-IT'),
-          }
-        }
-
-        return spot
-      })
-    )
+  if (loading && spots.length === 0) {
+    return <div style={{padding: '2rem', textAlign: 'center'}}>Caricamento dati dal database...</div>
   }
 
   return (
     <>
-      <Header onResetFilters={handleResetFilters} />
-
-      <div className="app-shell">
-        <SidebarFilters
-          filters={filters}
-          onFilterChange={handleFilterChange}
-          onResetFilters={handleResetFilters}
-        />
+      <div className="app-container">
+        <aside className="sidebar-container">
+          <SidebarFilters
+            filters={filters}
+            onFilterChange={handleFilterChange}
+            onResetFilters={handleResetFilters}
+          />
+        </aside>
 
         <main className="main-content">
-          <div className="dashboard-stack">
-            <StatsCards summary={summary} />
+          <Header onResetFilters={handleResetFilters} />
 
-            <ZoneMiniMap
-              zones={zoneSummary}
-              selectedZone={selectedZone}
-              onSelectZone={handleZoneChange}
-            />
+          <div className="dashboard-content">
+            <StatsCards summary={globalSummary} />
 
-            <SearchBar
-              searchTerm={searchTerm}
-              onSearchChange={handleSearchChange}
-              onSearchSubmit={handleSearchSubmit}
-            />
+            <div className="grid-two">
+              <ZoneMiniMap
+                zones={zoneSummary}
+                selectedZone={activeZone}
+                onSelectZone={handleZoneChange}
+              />
+              <SearchBar
+                searchTerm={searchTerm}
+                onSearchChange={setSearchTerm}
+                onSearchSubmit={() => {}}
+              />
+            </div>
 
             <ZoneTabs
               selectedZone={selectedZone}
