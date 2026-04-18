@@ -3,7 +3,7 @@ import './App.css'
 import mockSpots from './data/mockSpots'
 import ParkingMapView from './components/ParkingMapView'
 import AdminActions from './components/AdminActions'
-
+import { updateSpot } from './services/api.js'
 
 
 function formatStato(spot) {
@@ -12,29 +12,25 @@ function formatStato(spot) {
   return 'Libero'
 }
 
+// ✅ CORRETTO - usa parking_type e valori inglesi del DB
 function getBadgeClass(spot) {
   if (spot.maintenance) return 'status-warning'
   if (spot.status === 'occupied') return 'status-danger'
 
-  switch (spot.parkingtype) {
-    case 'disabili':
-      return 'status-info'
-    case 'elettrico':
-      return 'status-success'
-    case 'moto':
-      return 'status-info'
-    case 'furgone':
-      return 'status-warning'
-    default:
-      return 'status-success'
+  switch (spot.parking_type) {
+    case 'disabled':    return 'status-info'
+    case 'electric':    return 'status-success'
+    case 'motorcycle':  return 'status-warning'
+    case 'van':         return 'status-warning'
+    default:            return 'status-success'
   }
 }
 
 function getVehicleIcon(spot) {
-  if (spot.parkingtype === 'moto') return '🏍️'
-  if (spot.parkingtype === 'furgone') return '🚐'
-  if (spot.parkingtype === 'elettrico') return '⚡'
-  if (spot.parkingtype === 'disabili') return '♿'
+  if (spot.parking_type === 'motorcycle') return '🏍️'
+  if (spot.parking_type === 'van')        return '🚐'
+  if (spot.parking_type === 'electric')   return '⚡'
+  if (spot.parking_type === 'disabled')   return '♿'
   return '🚗'
 }
 
@@ -68,22 +64,34 @@ function App() {
   const [focusedZone, setFocusedZone] = useState('A')
 
   function matchesFilters(spot) {
-  // Se non c'è il termine di ricerca, il posto passa il filtron jhgjghj
-  if (!searchTerm) return true;
-  
-  // Verifica che spot.id esista prima di chiamare toLowerCase()
-  const idMatch = spot.id && spot.id.toLowerCase().includes(searchTerm.toLowerCase());
-  
-  // Se vuoi cercare anche per tipo, assicurati di usare i nomi corretti del DB
-  const typeMatch = spot.parking_type && spot.parking_type.toLowerCase().includes(searchTerm.toLowerCase());
-  
-  return idMatch || typeMatch;
-}
+    // Filtro stato
+    if (statusFilter !== 'all') {
+      if (statusFilter === 'maintenance' && !spot.maintenance) return false;
+      if (statusFilter === 'occupied' && (spot.maintenance || spot.status !== 'occupied')) return false;
+      if (statusFilter === 'free' && (spot.maintenance || spot.status !== 'free')) return false;
+    }
+
+    // Filtro tipo parcheggio
+    if (typeFilter !== 'all' && spot.parking_type !== typeFilter) return false;
+
+    // Filtro zona
+    if (zoneFilter !== 'all' && spot.zone !== zoneFilter) return false;
+
+    // Filtro ricerca testo
+    if (searchTerm) {
+      const idMatch = spot.id && spot.id.toLowerCase().includes(searchTerm.toLowerCase());
+      const typeMatch = spot.parking_type && spot.parking_type.toLowerCase().includes(searchTerm.toLowerCase());
+      if (!idMatch && !typeMatch) return false;
+    }
+
+    return true;
+  }
 
   const filteredSpots = useMemo(() => {
-  if (!spots) return []; // Sicurezza se i dati non sono ancora arrivati
-  return spots.filter(matchesFilters);
-}, [spots, searchTerm]);
+    if (!spots) return [];
+    return spots.filter(matchesFilters);
+  }, [spots, searchTerm, statusFilter, typeFilter, zoneFilter]);
+
   const stats = useMemo(() => {
     const total = spots.length
     const occupied = spots.filter((spot) => spot.status === 'occupied' && !spot.maintenance).length
@@ -156,15 +164,20 @@ function App() {
     }))
   }
 
-  function handleSaveSpot() {
-    const updatedSpot = {
-      ...editSpot,
-      lastupdated: getCurrentDateTime(),
+  async function handleSaveSpot(updatedData) {
+    try {
+      const result = await updateSpot(updatedData.id, updatedData);
+      // Aggiorna lo stato locale con il last_updated che arriva dal server
+      const updatedSpot = { ...updatedData, last_updated: result.last_updated };
+      setSpots((prev) =>
+        prev.map((spot) => (spot.id === updatedSpot.id ? updatedSpot : spot))
+      );
+      setSelectedSpot(updatedSpot);
+      setEditSpot(null);
+    } catch (err) {
+      console.error("Errore salvataggio:", err);
+      alert("Salvataggio fallito: " + err.message);
     }
-
-    setSpots((prev) => prev.map((spot) => (spot.id === updatedSpot.id ? updatedSpot : spot)))
-    setSelectedSpot(updatedSpot)
-    setEditSpot(updatedSpot)
   }
 
   function handleExportJson() {
@@ -237,7 +250,7 @@ function App() {
             ...spot,
             status: nextStatus,
             maintenance: nextMaintenance,
-            lastupdated: getCurrentDateTime(),
+            last_updated: getCurrentDateTime(),
           }
         }
 
@@ -290,12 +303,12 @@ function App() {
             value={typeFilter}
             onChange={(event) => setTypeFilter(event.target.value)}
           >
-            <option value="tutti">Tutti</option>
-            <option value="normale">Normale</option>
-            <option value="disabili">Disabili</option>
-            <option value="elettrico">Elettrico</option>
-            <option value="moto">Moto</option>
-            <option value="vfurgonean">Furgone</option>
+            <option value="all">Tutti</option>
+            <option value="normal">Normale</option>
+            <option value="disabled">Disabili</option>
+            <option value="electric">Elettrico</option>
+            <option value="motorcycle">Moto</option>
+            <option value="van">Furgone</option>
           </select>
         </div>
 
@@ -611,26 +624,26 @@ function App() {
               <div className="update-box">
                 <label className="modal-label">Tipo posto</label>
                 <select
-                  value={editSpot.parkingtype}
-                  onChange={(event) => handleEditChange('parkingtype', event.target.value)}
+                  value={editSpot.parking_type}
+                  onChange={(event) => handleEditChange('parking_type', event.target.value)}
                 >
-                  <option value="normale">Normale</option>
-                  <option value="disabili">Disabili</option>
-                  <option value="elettrico">Elettrico</option>
-                  <option value="moto">Moto</option>
-                  <option value="furgone">Furgone</option>
+                  <option value="normal">Normale</option>
+                  <option value="disabled">Disabili</option>
+                  <option value="electric">Elettrico</option>
+                  <option value="motorcycle">Moto</option>
+                  <option value="van">Furgone</option>
                 </select>
               </div>
 
               <div className="update-box">
                 <label className="modal-label">Tipo veicolo</label>
                 <select
-                  value={editSpot.vehicletype}
-                  onChange={(event) => handleEditChange('vehicletype', event.target.value)}
+                  value={editSpot.vehicle_type}
+                  onChange={(event) => handleEditChange('vehicle_type', event.target.value)}
                 >
-                  <option value="auto">Auto</option>
-                  <option value="moto">Moto</option>
-                  <option value="furgone">Furgone</option>
+                  <option value="car">Auto</option>
+                  <option value="motorcycle">Moto</option>
+                  <option value="van">Furgone</option>
                 </select>
               </div>
 
@@ -640,14 +653,14 @@ function App() {
                   type="number"
                   min="0"
                   step="0.5"
-                  value={editSpot.cost}
+                  value={editSpot.cost ?? 0}
                   onChange={(event) => handleEditChange('cost', Number(event.target.value))}
                 />
               </div>
 
               <div className="update-box">
                 <label className="modal-label">Ultimo aggiornamento</label>
-                <input value={editSpot.lastupdated} readOnly />
+                <input value={editSpot.last_updated || ''} readOnly />
               </div>
 
               <div className="maintenance-box">
@@ -667,7 +680,7 @@ function App() {
               <button type="button" className="btn-secondary" onClick={() => setEditSpot(null)}>
                 Annulla
               </button>
-              <button type="button" className="btn-primary" onClick={handleSaveSpot}>
+              <button type="button" className="btn-primary" onClick={() => handleSaveSpot(editSpot)}>
                 Salva modifiche
               </button>
             </div>

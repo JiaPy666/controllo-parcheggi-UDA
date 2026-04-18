@@ -131,29 +131,39 @@ function DashboardPage() {
   }
 
   // 2. Salvataggio dati sul database (via Flask PUT)
-  async function handleSaveSpot(updatedSpot) {
+  const handleSaveSpot = async (updatedSpot) => {
+    console.log('Spot da salvare:', updatedSpot)
     try {
-      const response = await fetch(`${API_URL}/${updatedSpot.id}`, {
+      const response = await fetch(`http://127.0.0.1:5000/api/spots/${updatedSpot.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedSpot),
-      })
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          zone: updatedSpot.zone,
+          status: updatedSpot.status,
+          parking_type: updatedSpot.parking_type, // Verifica che non sia parkingType
+          maintenance: updatedSpot.maintenance,
+          vehicle_type: updatedSpot.vehicle_type, // Verifica che non sia vehicleType
+          cost: updatedSpot.cost
+        }),
+      });
 
-      if (!response.ok) throw new Error('Errore durante il salvataggio')
-      
-      const result = await response.json()
-
-      // Aggiorniamo lo stato locale con l'orario restituito dal DB
-      setSpots((prev) =>
-        prev.map((s) => (s.id === updatedSpot.id ? { ...updatedSpot, last_updated: result.last_updated } : s))
-      )
-      
-      setSelectedSpot(null)
+      if (response.ok) {
+        const result = await response.json();
+        // Aggiorna lo stato locale per vedere il cambiamento subito
+        setSpots(prev => prev.map(s => 
+          s.id === updatedSpot.id ? { ...updatedSpot, last_updated: result.last_updated } : s
+        ));
+        alert("Modifica salvata nel database!");
+      } else {
+        alert("Errore durante il salvataggio sul server.");
+      }
     } catch (error) {
-      console.error("Errore salvataggio:", error)
-      alert("Errore durante il salvataggio nel database.")
+      console.error("Errore di connessione:", error);
+      alert("Errore di connessione al server: " + error.message);
     }
-  }
+  };
 
   function handleChangeView(view) {
     setCurrentView(view)

@@ -37,16 +37,14 @@ function SpotModal({ spot, onClose, onSave }) {
     }))
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
-
-    onSave({
+    console.log('SUBMIT CHIAMATO', formData)
+    await onSave({
       ...formData,
       cost: Number(formData.cost),
-      last_updated: new Date().toLocaleString('it-IT'),
     })
-
-    onClose()
+    onClose() 
   }
 
   return (
@@ -104,11 +102,11 @@ function SpotModal({ spot, onClose, onSave }) {
                 value={formData.parking_type}
                 onChange={handleChange}
               >
-                <option value="normale">Normale</option>
-                <option value="disabili">Disabili</option>
-                <option value="elettrico">Elettrico</option>
-                <option value="moto">Moto</option>
-                <option value="furgone">Van</option>
+                <option value="normal">Normale</option>       
+                <option value="disabled">Disabili</option>    
+                <option value="electric">Elettrico</option>    
+                <option value="motorcycle">Moto</option>     
+                <option value="van">Van</option> 
               </select>
             </label>
 
@@ -119,9 +117,9 @@ function SpotModal({ spot, onClose, onSave }) {
                 value={formData.vehicle_type}
                 onChange={handleChange}
               >
-                <option value="auto">Auto</option>
-                <option value="moto">Moto</option>
-                <option value="furgone">Van</option>
+                <option value="car">Auto</option>             
+                <option value="motorcycle">Moto</option>      
+                <option value="van">Van</option>               
               </select>
             </label>
 
