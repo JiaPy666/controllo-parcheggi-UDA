@@ -57,30 +57,50 @@ function formatDuration(ms) {
 
 async function generateBookingPDF(booking, user) {
   const { jsPDF } = await import('jspdf')
+  const QRCode = await import('qrcode')
   const doc = new jsPDF()
 
-  // Header
+  const bookingCode = booking.booking_code || booking.code
+
+  // Genera QR code come data URL
+  const qrData = [
+    `Codice: ${bookingCode}`,
+    `Posto: ${booking.spot_id || booking.spotId || ''}`,
+    `Zona: ${booking.zone}`,
+    `Intestatario: ${user.name}`,
+    `Targa: ${user.plate || 'N/D'}`,
+    `Inizio: ${booking.start_time || booking.startTime}`,
+    `Fine: ${booking.end_time || booking.endTime}`,
+  ].join(' | ')
+
+  const qrDataUrl = await QRCode.toDataURL(qrData, {
+    width: 200,
+    margin: 1,
+    color: { dark: '#0f172a', light: '#ffffff' }
+  })
+
+  // ── Header ──
   doc.setFillColor(15, 23, 42)
   doc.rect(0, 0, 210, 40, 'F')
   doc.setTextColor(255, 255, 255)
   doc.setFontSize(22)
   doc.setFont('helvetica', 'bold')
-  doc.text('🅿 Prenotazione Parcheggio', 14, 18)
+  doc.text('Prenotazione Parcheggio', 14, 18)
   doc.setFontSize(11)
   doc.setFont('helvetica', 'normal')
   doc.text('Aeroporto UDA — Biglietto di prenotazione', 14, 30)
 
-  // Booking code box
+  // ── Codice box ──
   doc.setFillColor(37, 99, 235)
   doc.roundedRect(14, 48, 182, 22, 4, 4, 'F')
   doc.setTextColor(255, 255, 255)
   doc.setFontSize(16)
   doc.setFont('helvetica', 'bold')
-  doc.text(`Codice: ${booking.booking_code || booking.code}`, 105, 63, { align: 'center' })
+  doc.text(`Codice: ${bookingCode}`, 105, 63, { align: 'center' })
 
-  // Details
+  // ── Dettagli (colonna sinistra) ──
   doc.setTextColor(15, 23, 42)
-  doc.setFontSize(12)
+  doc.setFontSize(11)
   const rows = [
     ['Intestatario', user.name],
     ['Email', user.email],
@@ -89,28 +109,50 @@ async function generateBookingPDF(booking, user) {
     ['Zona', `Zona ${booking.zone}`],
     ['Tipo', formatType(booking.parking_type || booking.type)],
     ['Costo orario', `€ ${booking.hourly_cost || booking.cost}/ora`],
-    ['Inizio prenotazione', booking.start_time || booking.startTime],
-    ['Fine prenotazione', booking.end_time || booking.endTime],
+    ['Inizio', booking.start_time || booking.startTime],
+    ['Fine', booking.end_time || booking.endTime],
     ['Durata', (booking.duration_hours || booking.duration) + ' ore'],
-    ['Totale stimato', `€ ${Number(booking.total_cost || (booking.cost * booking.duration)).toFixed(2)}`],
+    ['Totale', `€ ${Number(booking.total_cost || (booking.cost * booking.duration)).toFixed(2)}`],
   ]
 
   let y = 82
   rows.forEach(([label, value], i) => {
     if (i % 2 === 0) {
       doc.setFillColor(248, 251, 255)
-      doc.rect(14, y - 5, 182, 12, 'F')
+      doc.rect(14, y - 5, 120, 12, 'F')
     }
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(100, 116, 139)
     doc.text(label, 18, y + 3)
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(15, 23, 42)
-    doc.text(String(value), 100, y + 3)
+    doc.text(String(value), 62, y + 3)
     y += 13
   })
 
-  // Footer
+  // ── QR Code (colonna destra) ──
+  const qrX = 142  // posizione X del QR
+  const qrY = 80   // posizione Y del QR
+  const qrSize = 55 // dimensione in mm
+
+  // Box sfondo QR
+  doc.setFillColor(248, 251, 255)
+  doc.setDrawColor(219, 228, 240)
+  doc.roundedRect(qrX - 4, qrY - 4, qrSize + 8, qrSize + 18, 4, 4, 'FD')
+
+  // Immagine QR
+  doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize)
+
+  // Label sotto il QR
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(100, 116, 139)
+  doc.text('Scansiona per verificare', qrX + qrSize / 2, qrY + qrSize + 9, { align: 'center' })
+  doc.setFontSize(7)
+  doc.setFont('helvetica', 'normal')
+  doc.text(bookingCode, qrX + qrSize / 2, qrY + qrSize + 14, { align: 'center' })
+
+  // ── Footer ──
   doc.setFillColor(248, 251, 255)
   doc.rect(0, 270, 210, 27, 'F')
   doc.setFontSize(9)
@@ -118,7 +160,7 @@ async function generateBookingPDF(booking, user) {
   doc.text('Questo documento è il tuo titolo di accesso al parcheggio. Conservalo.', 105, 282, { align: 'center' })
   doc.text(`Generato il ${new Date().toLocaleString('it-IT')}`, 105, 290, { align: 'center' })
 
-  doc.save(`prenotazione-${booking.code}.pdf`)
+  doc.save(`prenotazione-${bookingCode}.pdf`)
 }
 
 // ─── Countdown Hook ──────────────────────────────────────────────────────────

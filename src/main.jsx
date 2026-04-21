@@ -1,33 +1,58 @@
-import { useState } from 'react'
+import { StrictMode, useState, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
-import { StrictMode } from 'react'
 import App from './App.jsx'
 import UserPage from './pages/UserPage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
 
-function Root() {
-  const [mode, setMode] = useState('admin') // 'admin' | 'user'
-  const [user, setUser] = useState(null)
+const API = 'http://127.0.0.1:5000/api'
 
-  async function handleLogout() {
-    await fetch('http://127.0.0.1:5000/api/auth/logout', { method: 'POST', credentials: 'include' })
+function Root() {
+  const [user, setUser] = useState(null)
+  const [checking, setChecking] = useState(true)
+
+  // Al caricamento leggi l'utente da sessionStorage
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('parkuda_user')
+      if (saved) {
+        setUser(JSON.parse(saved))
+      }
+    } catch (e) {}
+    setChecking(false)
+  }, [])
+
+  function handleLogin(loggedUser) {
+    sessionStorage.setItem('parkuda_user', JSON.stringify(loggedUser))
+    setUser(loggedUser)
+  }
+
+  function handleLogout() {
+    sessionStorage.removeItem('parkuda_user')
     setUser(null)
   }
 
-  return (
-    <>
-      <div style={{ position: 'fixed', top: 12, right: 12, zIndex: 9999, display: 'flex', gap: 8 }}>
-        <button onClick={() => setMode('admin')} style={{ padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', background: mode === 'admin' ? '#2563eb' : '#e2e8f0', color: mode === 'admin' ? 'white' : '#0f172a', fontWeight: 700 }}>Admin</button>
-        <button onClick={() => setMode('user')}  style={{ padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', background: mode === 'user'  ? '#2563eb' : '#e2e8f0', color: mode === 'user'  ? 'white' : '#0f172a', fontWeight: 700 }}>Utente</button>
+  if (checking) {
+    return (
+      <div style={{
+        minHeight: '100vh', display: 'grid', placeItems: 'center',
+        background: 'linear-gradient(135deg, #0f172a 0%, #172554 100%)',
+        color: 'white', fontSize: 18, fontFamily: 'system-ui'
+      }}>
+        ⏳ Caricamento…
       </div>
-      {mode === 'admin'
-        ? <App />
-        : user
-          ? <UserPage initialUser={user} onLogout={handleLogout} />
-          : <LoginPage onLogin={setUser} />
-      }
-    </>
-  )
+    )
+  }
+
+  // Non loggato → Login
+  if (!user) return <LoginPage onLogin={handleLogin} />
+
+  // Admin → dashboard admin
+  if (user.role === 'admin') return <App user={user} onLogout={handleLogout} />
+
+  // Utente normale → pagina prenotazioni
+  return <UserPage initialUser={user} onLogout={handleLogout} />
 }
 
-createRoot(document.getElementById('root')).render(<StrictMode><Root /></StrictMode>)
+createRoot(document.getElementById('root')).render(
+  <StrictMode><Root /></StrictMode>
+)

@@ -12,25 +12,29 @@ function formatStato(spot) {
   return 'Libero'
 }
 
-// ✅ CORRETTO - usa parking_type e valori inglesi del DB
 function getBadgeClass(spot) {
   if (spot.maintenance) return 'status-warning'
   if (spot.status === 'occupied') return 'status-danger'
 
   switch (spot.parking_type) {
-    case 'disabled':    return 'status-info'
-    case 'electric':    return 'status-success'
-    case 'motorcycle':  return 'status-warning'
-    case 'van':         return 'status-warning'
-    default:            return 'status-success'
+    case 'disabled':
+      return 'status-info'
+    case 'electric':
+      return 'status-success'
+    case 'motorcycle':
+      return 'status-info'
+    case 'van':
+      return 'status-warning'
+    default:
+      return 'status-success'
   }
 }
 
 function getVehicleIcon(spot) {
   if (spot.parking_type === 'motorcycle') return '🏍️'
-  if (spot.parking_type === 'van')        return '🚐'
-  if (spot.parking_type === 'electric')   return '⚡'
-  if (spot.parking_type === 'disabled')   return '♿'
+  if (spot.parking_type === 'van') return '🚐'
+  if (spot.parking_type === 'electric') return '⚡'
+  if (spot.parking_type === 'disabled') return '♿'
   return '🚗'
 }
 
@@ -39,7 +43,7 @@ function getCurrentDateTime() {
   return now.toLocaleString('it-IT')
 }
 
-function App() {
+function App({ user, onLogout }) {
   const [spots, setSpots] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -61,37 +65,38 @@ function App() {
   const [zoneFilter, setZoneFilter] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [viewMode, setViewMode] = useState('overview')
+  const [adminView, setAdminView] = useState('dashboard') // 'dashboard' | 'bookings'
+  const [bookings, setBookings] = useState([])
+  const [bookingsLoading, setBookingsLoading] = useState(false)
+  const [bookingSearch, setBookingSearch] = useState('')
+  const [bookingStatusFilter, setBookingStatusFilter] = useState('all')
   const [focusedZone, setFocusedZone] = useState('A')
 
   function matchesFilters(spot) {
     // Filtro stato
     if (statusFilter !== 'all') {
-      if (statusFilter === 'maintenance' && !spot.maintenance) return false;
-      if (statusFilter === 'occupied' && (spot.maintenance || spot.status !== 'occupied')) return false;
-      if (statusFilter === 'free' && (spot.maintenance || spot.status !== 'free')) return false;
+      if (statusFilter === 'maintenance' && !spot.maintenance) return false
+      if (statusFilter === 'occupied' && (spot.maintenance || spot.status !== 'occupied')) return false
+      if (statusFilter === 'free' && (spot.maintenance || spot.status !== 'free')) return false
     }
-
-    // Filtro tipo parcheggio
-    if (typeFilter !== 'all' && spot.parking_type !== typeFilter) return false;
-
+    // Filtro tipo
+    if (typeFilter !== 'all' && spot.parking_type !== typeFilter) return false
     // Filtro zona
-    if (zoneFilter !== 'all' && spot.zone !== zoneFilter) return false;
-
-    // Filtro ricerca testo
+    if (zoneFilter !== 'all' && spot.zone !== zoneFilter) return false
+    // Ricerca testo
     if (searchTerm) {
-      const idMatch = spot.id && spot.id.toLowerCase().includes(searchTerm.toLowerCase());
-      const typeMatch = spot.parking_type && spot.parking_type.toLowerCase().includes(searchTerm.toLowerCase());
-      if (!idMatch && !typeMatch) return false;
+      const s = searchTerm.toLowerCase()
+      const idMatch = spot.id && spot.id.toLowerCase().includes(s)
+      const typeMatch = spot.parking_type && spot.parking_type.toLowerCase().includes(s)
+      if (!idMatch && !typeMatch) return false
     }
-
-    return true;
+    return true
   }
 
   const filteredSpots = useMemo(() => {
-    if (!spots) return [];
-    return spots.filter(matchesFilters);
-  }, [spots, searchTerm, statusFilter, typeFilter, zoneFilter]);
-
+    if (!spots) return []
+    return spots.filter(matchesFilters)
+  }, [spots, searchTerm, statusFilter, typeFilter, zoneFilter])
   const stats = useMemo(() => {
     const total = spots.length
     const occupied = spots.filter((spot) => spot.status === 'occupied' && !spot.maintenance).length
@@ -127,7 +132,7 @@ function App() {
     setSelectedSpot(spot)
     setEditSpot({
       ...spot,
-      vehicletype: spot.vehicletype || 'auto',
+      vehicle_type: spot.vehicle_type || 'car',
     })
   }
 
@@ -178,6 +183,99 @@ function App() {
       console.error("Errore salvataggio:", err);
       alert("Salvataggio fallito: " + err.message);
     }
+  }
+
+  async function fetchBookings() {
+    setBookingsLoading(true)
+    try {
+      const res = await fetch('http://127.0.0.1:5000/api/bookings')
+      const data = await res.json()
+      setBookings(Array.isArray(data) ? data : [])
+    } catch (e) {
+      console.error('Errore caricamento prenotazioni:', e)
+    } finally {
+      setBookingsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (adminView === 'bookings') fetchBookings()
+  }, [adminView])
+
+  async function handleAdminCancelBooking(bookingId) {
+    if (!confirm('Annullare questa prenotazione?')) return
+    try {
+      const res = await fetch(`http://127.0.0.1:5000/api/bookings/${bookingId}/cancel`, { method: 'POST' })
+      if (res.ok) {
+        showAdminNotif('🗑 Prenotazione annullata')
+        fetchBookings()
+        // Aggiorna anche i posti
+        fetch('http://127.0.0.1:5000/api/spots').then(r => r.json()).then(setSpots)
+      }
+    } catch (e) { showAdminNotif('❌ Errore di rete', 'error') }
+  }
+
+  async function handleAdminDownloadPDF(booking) {
+    const { jsPDF } = await import('jspdf')
+    const QRCode = await import('qrcode')
+    const doc = new jsPDF()
+    const bookingCode = booking.booking_code
+    const qrData = `Codice: ${bookingCode} | Posto: ${booking.spot_id} | Zona: ${booking.zone} | Utente: ${booking.user_name || ''} | Inizio: ${booking.start_time} | Fine: ${booking.end_time}`
+    const qrDataUrl = await QRCode.toDataURL(qrData, { width: 200, margin: 1, color: { dark: '#0f172a', light: '#ffffff' } })
+    doc.setFillColor(15, 23, 42); doc.rect(0, 0, 210, 40, 'F')
+    doc.setTextColor(255, 255, 255); doc.setFontSize(22); doc.setFont('helvetica', 'bold')
+    doc.text('Prenotazione Parcheggio', 14, 18)
+    doc.setFontSize(11); doc.setFont('helvetica', 'normal')
+    doc.text('Aeroporto UDA — Copia Amministratore', 14, 30)
+    doc.setFillColor(37, 99, 235); doc.roundedRect(14, 48, 182, 22, 4, 4, 'F')
+    doc.setTextColor(255, 255, 255); doc.setFontSize(16); doc.setFont('helvetica', 'bold')
+    doc.text(`Codice: ${bookingCode}`, 105, 63, { align: 'center' })
+    doc.setTextColor(15, 23, 42); doc.setFontSize(11)
+    const rows = [
+      ['Utente', booking.user_name || 'N/D'], ['Email', booking.user_email || 'N/D'],
+      ['Targa', booking.user_plate || 'N/D'], ['Posto', booking.spot_id],
+      ['Zona', `Zona ${booking.zone}`], ['Tipo', booking.parking_type],
+      ['Costo/ora', `€ ${booking.hourly_cost}`], ['Inizio', booking.start_time],
+      ['Fine', booking.end_time], ['Durata', booking.duration_hours + ' ore'],
+      ['Totale', `€ ${Number(booking.total_cost).toFixed(2)}`],
+      ['Stato', booking.status === 'active' ? 'Attiva' : booking.status === 'cancelled' ? 'Annullata' : 'Conclusa'],
+    ]
+    let y = 82
+    rows.forEach(([label, value], i) => {
+      if (i % 2 === 0) { doc.setFillColor(248, 251, 255); doc.rect(14, y - 5, 120, 12, 'F') }
+      doc.setFont('helvetica', 'bold'); doc.setTextColor(100, 116, 139); doc.text(label, 18, y + 3)
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(15, 23, 42); doc.text(String(value || ''), 62, y + 3)
+      y += 13
+    })
+    doc.addImage(qrDataUrl, 'PNG', 142, 80, 55, 55)
+    doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(100, 116, 139)
+    doc.text('Scansiona per verificare', 169.5, 141, { align: 'center' })
+    doc.setFillColor(248, 251, 255); doc.rect(0, 270, 210, 27, 'F')
+    doc.setFontSize(9); doc.setTextColor(100, 116, 139)
+    doc.text(`Generato il ${new Date().toLocaleString('it-IT')} — Uso interno`, 105, 282, { align: 'center' })
+    doc.save(`admin-prenotazione-${bookingCode}.pdf`)
+  }
+
+  async function handleExportAllCSV() {
+    const headers = ['Codice','Posto','Zona','Tipo','Utente','Email','Targa','Inizio','Fine','Durata','Totale','Stato']
+    const rows = bookings.map(b => [
+      b.booking_code, b.spot_id, b.zone, b.parking_type,
+      b.user_name||'', b.user_email||'', b.user_plate||'',
+      b.start_time, b.end_time, b.duration_hours,
+      Number(b.total_cost).toFixed(2), b.status
+    ])
+    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = 'prenotazioni.csv'; a.click()
+    URL.revokeObjectURL(url)
+    showAdminNotif('📊 CSV esportato')
+  }
+
+  const [adminNotif, setAdminNotif] = useState(null)
+  function showAdminNotif(msg, type = 'success') {
+    setAdminNotif({ msg, type })
+    setTimeout(() => setAdminNotif(null), 4000)
   }
 
   function handleExportJson() {
@@ -265,10 +363,21 @@ function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <h1 className="sidebar-title">Parcheggio Aeroporto</h1>
+        <h1 className="sidebar-title">🅿 Admin</h1>
         <p className="sidebar-subtitle">
           Dashboard per controllare i posti, modificarli e visualizzare la disposizione del parcheggio.
         </p>
+
+        {/* Profilo admin */}
+        {user && (
+          <div className="user-profile-box" style={{ marginBottom: 20 }}>
+            <div className="user-avatar">{user.name ? user.name.charAt(0).toUpperCase() : 'A'}</div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: 'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name}</div>
+              <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12 }}>{user.role === 'admin' ? '🔑 Amministratore' : user.email}</div>
+            </div>
+          </div>
+        )}
 
         <div className="sidebar-section">
           <label className="sidebar-label">Cerca posto</label>
@@ -348,6 +457,15 @@ function App() {
             Reimposta filtri
           </button>
         </div>
+
+        {/* Logout */}
+        {onLogout && (
+          <div className="sidebar-section" style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+            <button type="button" className="btn-danger" style={{ width: '100%' }} onClick={onLogout}>
+              🚪 Esci dall'account
+            </button>
+          </div>
+        )}
       </aside>
 
       <main className="main-content">
@@ -361,23 +479,32 @@ function App() {
             </div>
 
             <div className="header-actions">
-              <button
-                type="button"
-                className={`view-toggle-btn ${viewMode === 'overview' ? 'active' : ''}`}
-                onClick={() => setViewMode('overview')}
-              >
-                Vista generale
+              <button type="button"
+                className={`view-toggle-btn ${adminView === 'dashboard' ? 'active' : ''}`}
+                onClick={() => setAdminView('dashboard')}>
+                🅿 Dashboard
               </button>
-              <button
-                type="button"
-                className={`view-toggle-btn ${viewMode === 'focus' ? 'active' : ''}`}
-                onClick={() => setViewMode('focus')}
-              >
-                Vista zona
+              <button type="button"
+                className={`view-toggle-btn ${adminView === 'bookings' ? 'active' : ''}`}
+                onClick={() => setAdminView('bookings')}>
+                📋 Prenotazioni
               </button>
+              {adminView === 'dashboard' && (<>
+                <button type="button"
+                  className={`view-toggle-btn ${viewMode === 'overview' ? 'active' : ''}`}
+                  onClick={() => setViewMode('overview')}>
+                  Vista generale
+                </button>
+                <button type="button"
+                  className={`view-toggle-btn ${viewMode === 'focus' ? 'active' : ''}`}
+                  onClick={() => setViewMode('focus')}>
+                  Vista zona
+                </button>
+              </>)}
             </div>
           </section>
 
+          {adminView === 'dashboard' && (<>
           <section className="stats-grid">
             <div className="card stat-card stat-total">
               <div className="stat-card-top">
@@ -568,8 +695,129 @@ function App() {
               ))}
             </div>
           </section>
+          </>)}
+
+          {/* ── SEZIONE PRENOTAZIONI ADMIN ── */}
+          {adminView === 'bookings' && (<>
+
+            {/* Toolbar */}
+            <section className="panel" style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', padding: '16px 22px' }}>
+              <input
+                placeholder="Cerca per codice, posto, utente…"
+                value={bookingSearch}
+                onChange={e => setBookingSearch(e.target.value)}
+                style={{ flex: 1, minWidth: 200, borderRadius: 12, border: '1px solid var(--border-color)', padding: '10px 14px', fontSize: 14 }}
+              />
+              <select value={bookingStatusFilter} onChange={e => setBookingStatusFilter(e.target.value)}
+                style={{ borderRadius: 12, border: '1px solid var(--border-color)', padding: '10px 14px', fontWeight: 600, background: 'white' }}>
+                <option value="all">Tutti gli stati</option>
+                <option value="active">🟢 Attive</option>
+                <option value="cancelled">🔴 Annullate</option>
+                <option value="completed">⚫ Concluse</option>
+              </select>
+              <button className="btn-secondary" onClick={fetchBookings} style={{ whiteSpace: 'nowrap' }}>🔄 Aggiorna</button>
+              <button className="btn-secondary" onClick={handleExportAllCSV} style={{ whiteSpace: 'nowrap' }}>📊 Esporta CSV</button>
+            </section>
+
+            {/* Stats rapide */}
+            {(() => {
+              const active = bookings.filter(b => b.status === 'active').length
+              const cancelled = bookings.filter(b => b.status === 'cancelled').length
+              const revenue = bookings.filter(b => b.status !== 'cancelled').reduce((s,b) => s + Number(b.total_cost), 0)
+              return (
+                <section className="stats-grid" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
+                  {[
+                    { label: 'Prenotazioni totali', value: bookings.length, icon: '📋', cls: 'stat-total' },
+                    { label: 'Attive ora', value: active, icon: '🟢', cls: 'stat-free' },
+                    { label: 'Annullate', value: cancelled, icon: '🔴', cls: 'stat-occupied' },
+                  ].map(s => (
+                    <div key={s.label} className={`card stat-card ${s.cls}`}>
+                      <div className="stat-card-top"><div className="stat-icon">{s.icon}</div><div className="stat-caption">{s.label}</div></div>
+                      <div className="stat-value">{s.value}</div>
+                    </div>
+                  ))}
+                </section>
+              )
+            })()}
+
+            {/* Tabella prenotazioni */}
+            <section className="panel" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ padding: '20px 22px 14px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 className="section-title" style={{ marginBottom: 4 }}>Tutte le prenotazioni</h3>
+                  <p className="muted-text" style={{ fontSize: 13 }}>
+                    {bookings.filter(b => {
+                      const s = bookingSearch.toLowerCase()
+                      const matchS = bookingStatusFilter === 'all' || b.status === bookingStatusFilter
+                      const matchT = !s || (b.booking_code||'').toLowerCase().includes(s) || (b.spot_id||'').toLowerCase().includes(s) || (b.user_name||'').toLowerCase().includes(s) || (b.user_email||'').toLowerCase().includes(s)
+                      return matchS && matchT
+                    }).length} risultati
+                  </p>
+                </div>
+              </div>
+              {bookingsLoading ? (
+                <div style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>⏳ Caricamento prenotazioni…</div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="admin-bookings-table">
+                    <thead>
+                      <tr>
+                        {['Codice','Posto','Utente','Inizio','Fine','Durata','Totale','Stato','Azioni'].map(h => (
+                          <th key={h}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bookings.filter(b => {
+                        const s = bookingSearch.toLowerCase()
+                        const matchS = bookingStatusFilter === 'all' || b.status === bookingStatusFilter
+                        const matchT = !s || (b.booking_code||'').toLowerCase().includes(s) || (b.spot_id||'').toLowerCase().includes(s) || (b.user_name||'').toLowerCase().includes(s) || (b.user_email||'').toLowerCase().includes(s)
+                        return matchS && matchT
+                      }).map(b => (
+                        <tr key={b.id}>
+                          <td><span className="admin-booking-code">{b.booking_code}</span></td>
+                          <td><strong>{b.spot_id}</strong><br/><span className="muted-text" style={{fontSize:12}}>Zona {b.zone}</span></td>
+                          <td>{b.user_name || '—'}<br/><span className="muted-text" style={{fontSize:12}}>{b.user_email || ''}</span></td>
+                          <td style={{fontSize:13}}>{b.start_time}</td>
+                          <td style={{fontSize:13}}>{b.end_time}</td>
+                          <td style={{textAlign:'center'}}>{b.duration_hours}h</td>
+                          <td style={{fontWeight:700, color:'var(--primary)'}}>€{Number(b.total_cost).toFixed(2)}</td>
+                          <td>
+                            <span className={`spot-status-badge ${b.status === 'active' ? 'status-success' : b.status === 'cancelled' ? 'status-danger' : 'status-neutral'}`}>
+                              {b.status === 'active' ? '🟢 Attiva' : b.status === 'cancelled' ? '🔴 Annullata' : '⚫ Conclusa'}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button className="btn-secondary" style={{padding:'5px 10px',fontSize:12}} onClick={() => handleAdminDownloadPDF(b)}>📄 PDF</button>
+                              {b.status === 'active' && (
+                                <button className="btn-danger" style={{padding:'5px 10px',fontSize:12}} onClick={() => handleAdminCancelBooking(b.id)}>✕</button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {bookings.length === 0 && (
+                        <tr><td colSpan="9" style={{textAlign:'center',padding:40,color:'var(--muted)'}}>
+                          📋 Nessuna prenotazione trovata
+                        </td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </>)}
+
         </div>
       </main>
+
+      {/* ── Toast admin ── */}
+      {adminNotif && (
+        <div className={`toast-notif ${adminNotif.type === 'error' ? 'toast-error' : 'toast-success'}`}>
+          {adminNotif.msg}
+        </div>
+      )}
 
       {editSpot && (
         <div className="modal-overlay" onClick={() => setEditSpot(null)}>
