@@ -1,0 +1,3 @@
+[submodule "database-docker-postgres"]
+	path = database-docker-postgres
+	url = https://github.com/JiaPy666/database-docker-postgres.git
