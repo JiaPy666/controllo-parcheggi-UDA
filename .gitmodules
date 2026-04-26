@@ -4,3 +4,6 @@
 [submodule "backend-uda"]
 	path = backend-uda
 	url = https://github.com/JiaPy666/backend-uda.git
+[submodule "frontend-uda"]
+	path = frontend-uda
+	url = https://github.com/JiaPy666/frontend-uda.git
