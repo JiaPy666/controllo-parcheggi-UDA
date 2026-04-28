@@ -8,8 +8,4 @@ git clone --recurse-submodules https://github.com/JiaPy666/controllo-parcheggi-U
 git submodule update --init --recursive
 ```
 
-## avvia il vite
-```
-cd controllo-parcheggi-UDA
-npm run dev
-```
+### Per avviare il progetto bisogna vedere tre readme interno della tre cartella
