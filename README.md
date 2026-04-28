@@ -11,9 +11,12 @@ git submodule update --init --recursive
 ### Per avviare il progetto bisogna vedere tre readme interno della tre cartella
 
 ## Accont e Password del admin
+- accont web 
 ```
 admin@parcheggi-uda.it 
 ```
+- password web
 ```
 admin123
 ```
+
