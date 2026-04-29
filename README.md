@@ -8,6 +8,11 @@ git clone --recurse-submodules https://github.com/JiaPy666/controllo-parcheggi-U
 git submodule update --init --recursive
 ```
 
+## Invece se voglio fare la pull
+```
+git pull --recurse-submodules
+```
+
 ### Per avviare il progetto bisogna vedere tre readme interno della tre cartella
 
 ## Accont e Password del admin
